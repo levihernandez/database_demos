@@ -1,0 +1,51 @@
+version: '3.9'
+services:
+  # CockroachDB Load Balancer
+  crdb-lb:
+    hostname: crdb-lb
+    image: haproxy:latest
+    volumes: ['./crdb-load-balancer.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro']
+    ports:
+      - "26257:26257"
+      - "8080:8080"
+      - "8181:8081"
+    depends_on:
+      - roach-01
+      - roach-02
+      - roach-03
+    restart: always
+    networks:
+      - roachnet
+
+  # CockroachDB default topology - 3 nodes
+  roach-01:
+    # see https://hub.docker.com/r/cockroachdb/cockroach/tags
+    image: cockroachdb/cockroach:v23.1.1
+    hostname: roach-01
+    volumes: ["./cockroach-data/roach-01:/cockroach/cockroach-data","./cockroach-config:/configs"]
+    command: start --insecure --join=roach-01 --cache=.25 --max-sql-memory=.25 --log-config-file=/configs/logs.yaml
+    networks:
+      - roachnet
+  roach-02:
+    # see https://hub.docker.com/r/cockroachdb/cockroach/tags
+    image: cockroachdb/cockroach:v23.1.1
+    hostname: roach-02
+    volumes: ["./cockroach-data/roach-02:/cockroach/cockroach-data","./cockroach-config:/configs"]
+    command: start --insecure --join=roach-01 --cache=.25 --max-sql-memory=.25 --log-config-file=/configs/logs.yaml
+    depends_on:
+    - roach-01
+    networks:
+      - roachnet
+  roach-03:
+    # see https://hub.docker.com/r/cockroachdb/cockroach/tags
+    image: cockroachdb/cockroach:v23.1.1
+    hostname: roach-03
+    volumes: ["./cockroach-data/roach-03:/cockroach/cockroach-data","./cockroach-config:/configs"]
+    command: start --insecure --join=roach-01 --cache=.25 --max-sql-memory=.25 --log-config-file=/configs/logs.yaml
+    depends_on:
+    - roach-01
+    networks:
+      - roachnet
+networks:
+  roachnet:
+    driver: bridge
