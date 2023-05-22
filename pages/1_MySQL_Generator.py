@@ -5,6 +5,7 @@ import psutil
 import time
 import mysql.connector
 from faker import Faker
+import sqlite3
 
 
 def get_system_info():
@@ -57,7 +58,7 @@ mysql_config = {
     'password': 'root',
     'host': 'localhost',
     'port': '3306',
-    'database': 'tododb'
+    'database': 'demodb'
 }
 
 configs = {
@@ -65,16 +66,58 @@ configs = {
     'batch_size': '10'
 }
 
-st.subheader("Seed Database")
-configs['create_rows'] = st.text_input('Seed Max Rows', value=configs['create_rows'])
-configs['batch_size'] = st.text_input('Batch Size', value=configs['batch_size'])
-# Display connection parameters
-st.subheader("MySQL Connection Information")
-mysql_config['user'] = st.text_input('MySQL Username', value=mysql_config['user'])
-mysql_config['password'] = st.text_input('MySQL Password', value=mysql_config['password'], type='password')
-mysql_config['host'] = st.text_input('MySQL Host', value=mysql_config['host'])
-mysql_config['port'] = st.text_input('MySQL Port', value=mysql_config['port'])
-mysql_config['database'] = st.text_input('MySQL Database', value=mysql_config['database'])
+# Create a connection to the database
+connection = sqlite3.connect("temp.db")
+
+# Create a cursor
+cursor = connection.cursor()
+
+# Get the list of tables
+dbs = cursor.execute("SELECT name FROM databases").fetchall()
+db_array = []
+for i in dbs:
+    db_array.append(i[0])
+
+# Create a dropdown
+dbs_dropdown = st.selectbox("Select a database", db_array)
+
+# If a table is selected, display the table data
+if dbs_dropdown:
+    dbs_name = dbs_dropdown  # .lower()
+
+    # Get the table data
+    cursor.execute(f"SELECT name, host, port, username, password  FROM databases WHERE name = '{dbs_name}'")
+    dbs_data = cursor.fetchall()
+
+    # Get the values of the selected record
+    record_values = dbs_data[0]
+    name = record_values[0]
+    host = record_values[1]
+    port = record_values[2]
+    username = record_values[3]
+    password = record_values[4]
+
+    # Prefill the form inputs with the values of the selected record
+    #st.text_input("Name", value=name)
+    #st.text_input("Host", value=host)
+    #st.text_input("Port", value=port)
+    #st.text_input("Username", value=username)
+    #st.text_input("Password", value=password)
+
+    st.subheader("Seed Database")
+    configs['create_rows'] = st.text_input('Seed Max Rows', value=configs['create_rows'])
+    configs['batch_size'] = st.text_input('Batch Size', value=configs['batch_size'])
+    # Display connection parameters
+    st.subheader("MySQL Connection Information")
+    mysql_config['name'] = st.text_input('MySQL Username', value=name)
+    mysql_config['user'] = st.text_input('MySQL Username', value=username)
+    mysql_config['password'] = st.text_input('MySQL Password', value=password, type='password')
+    mysql_config['host'] = st.text_input('MySQL Host', value=host)
+    mysql_config['port'] = st.text_input('MySQL Port', value=port)
+    mysql_config['database'] = st.text_input('MySQL Database', value=mysql_config['database'])
+
+# Close the connection
+connection.close()
 
 
 # Define function to connect to MySQL and CockroachDB
@@ -116,7 +159,7 @@ if st.button("Check Database"):
     mysql_conn = connect_to_databases(action)
     with mysql_conn.cursor() as cursor:
         # cursor.execute(f"SHOW DATABASES LIKE '{mysql_config['database']}'")
-        st.warning(f"Database {mysql_config['database']} does not exist, creating it now!")
+        st.warning(f"Validating if {mysql_config['database']} exists, otherwise creating it now!")
         # If the database does not exist, create it
         cursor.execute(f"CREATE DATABASE IF NOT EXISTS {mysql_config['database']}")
 
@@ -242,8 +285,8 @@ if st.button("Generate Schema in MySQL"):
             INSERT INTO users ( name, last, address, city, state, country, zip_code, login, email)
             VALUES ( %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
-            percentage = int((i / (users_to_insert // batch_size)) * 100)
-            progress_counter.text(f"{i * batch_size} of {users_to_insert}")
+            percentage = int(((i+1) / (users_to_insert // batch_size)) * 100)
+            progress_counter.text(f"{(i + 1) * batch_size} of {users_to_insert}")
             progress_bar.progress(percentage)
             for row in batch:
                 # st.write(f"Inserting batch {len(batch)}")
@@ -260,7 +303,7 @@ if st.button("Generate Schema in MySQL"):
         total_time = end_time - start_time
 
         # Print the total time
-        st.number_input("Total Insert Time in Seconds: ", value=total_time, format="%d")
+        st.text(f"Total Insert Time in Seconds: {total_time}")
     # Create 'logins' table
     with mysql_conn.cursor() as cursor:
         cursor.execute("""
@@ -318,35 +361,36 @@ if st.button("Generate Schema in MySQL"):
     mysql_conn.commit()
 
     st.success("Successfully created tables, inserted data, and counted logins!")
-action = 'db-generate'
-if connect_to_databases(action):
+
+    action = 'db-generate'
     st.subheader("Database Tables")
     mysql_conn = connect_to_databases(action)
-    st.success(f"[{checkmark}]  MySQL Connection!")
-    # Start with a fresh database
-    st.write("Database Tables")
-    with mysql_conn.cursor(buffered=True) as cursor:
-        columns = ['table_name', 'table_rows', 'data_length', 'index_length']
-        selec_columns = ",".join(columns)
-        table_result = cursor.execute(f"""
-            SELECT {selec_columns}
-            FROM information_schema.tables
-            WHERE table_schema = '{mysql_config['database']}';
-        """)
-        tables = pd.DataFrame(cursor.fetchall())
-        tables = tables.reset_index(drop=True)
-        tables.columns = columns
+    if connect_to_databases(action):
+        st.success(f"[{checkmark}]  MySQL Connection!")
+        # Start with a fresh database
+        st.write("Database Tables")
+        with mysql_conn.cursor(buffered=True) as cursor:
+            columns = ['table_name', 'table_rows', 'data_length', 'index_length']
+            selec_columns = ",".join(columns)
+            table_result = cursor.execute(f"""
+                SELECT {selec_columns}
+                FROM information_schema.tables
+                WHERE table_schema = '{mysql_config['database']}';
+            """)
+            tables = pd.DataFrame(cursor.fetchall())
+            tables = tables.reset_index(drop=True)
+            tables.columns = columns
 
-        st.table(tables)
+            st.table(tables)
 
-    st.subheader("Sample Data")
-    mysql_conn = connect_to_databases(action)
-    st.success(f"[{checkmark}]  MySQL Connection!")
-    with mysql_conn.cursor(buffered=True) as cursor:
-        columns = ["id", "name", "last", "address", "city", "state", "zip_code", "country", "login", "email"]
-        users_rs = cursor.execute(f"""SELECT * FROM users LIMIT 5""")
-        users = pd.DataFrame(cursor.fetchall())
-        users.columns = columns
-        users = users.reset_index(drop=True)
+        st.subheader("Sample Data")
+        mysql_conn = connect_to_databases(action)
+        st.success(f"[{checkmark}]  MySQL Connection!")
+        with mysql_conn.cursor(buffered=True) as cursor:
+            columns = ["id", "name", "last", "address", "city", "state", "zip_code", "country", "login", "email"]
+            users_rs = cursor.execute(f"""SELECT * FROM users LIMIT 5""")
+            users = pd.DataFrame(cursor.fetchall())
+            users.columns = columns
+            users = users.reset_index(drop=True)
 
-        st.table(users)
+            st.table(users)
